@@ -1,21 +1,32 @@
-import { useState, useRef, DragEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import '../App.css';
+// DataSourcePage.tsx
+// This page lets users choose how to provide data for the report: by uploading Excel files or connecting to a database.
+// It handles file validation, database form input, and navigation to the next step.
 
+import { useState, useRef, DragEvent } from 'react'; // Import React hooks
+import { useNavigate } from 'react-router-dom'; // Import navigation hook
+import '../App.css'; // Import global styles
+import './DataPreview1.css';
+import ColumnMultiSelect from './ColumnMultiSelect';
+
+// List of allowed file types for upload (Excel formats)
 const SUPPORTED_FILE_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel'
 ];
 
 function DataSourcePage() {
-  const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate(); // For navigating between pages
+  const fileInputRef = useRef<HTMLInputElement>(null); // Reference to the hidden file input
 
+  // State for which option is selected: file upload or database
   const [option, setOption] = useState<'file' | 'db' | null>(null);
+  // State for file upload errors
   const [fileError, setFileError] = useState('');
+  // State for the uploaded files
   const [files, setFiles] = useState<FileList | null>(null);
 
-  const [dbType, setDbType] = useState('');
+  // State for database connection details
+  const [dbType, setDbType] = useState(''); // Which DB type is selected
   const [dbDetails, setDbDetails] = useState({
     host: '',
     port: '',
@@ -23,10 +34,20 @@ function DataSourcePage() {
     username: '',
     password: ''
   });
+  // State for single/multiple table mode
   const [tableMode, setTableMode] = useState<'single' | 'multiple' | null>(null);
+  // State for the list of table names
   const [tables, setTables] = useState(['']);
+  // State for database form errors
   const [dbErrors, setDbErrors] = useState<{ [key: string]: string }>({});
 
+  // State for column selection
+  const [columns, setColumns] = useState<string[]>([]);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [preview, setPreview] = useState<any[]>([]);
+  const [allData, setAllData] = useState<any[]>([]);
+
+  // Function to validate the database form fields
   const validateDbInputs = () => {
     const errors: { [key: string]: string } = {};
     if (!dbDetails.host.trim()) errors.host = 'Host is required';
@@ -38,8 +59,10 @@ function DataSourcePage() {
     return errors;
   };
 
+  // Handler for when files are selected via the file input
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
+    // Check if all files are supported Excel types
     if (selectedFiles && Array.from(selectedFiles).every(f => SUPPORTED_FILE_TYPES.includes(f.type))) {
       setFiles(selectedFiles);
       setFileError('');
@@ -49,6 +72,7 @@ function DataSourcePage() {
     }
   };
 
+  // Handler for drag-and-drop file upload
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const droppedFiles = e.dataTransfer.files;
@@ -61,20 +85,26 @@ function DataSourcePage() {
     }
   };
 
+  // Handler for changes in the database form fields
   const handleDbChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setDbDetails({ ...dbDetails, [name]: value });
   };
 
+  // Handler for changing table names
   const handleTableChange = (idx: number, value: string) => {
     const newTables = [...tables];
     newTables[idx] = value;
     setTables(newTables);
   };
 
+  // Add a new table input field
   const addTable = () => setTables([...tables, '']);
+  // Remove a table input field
   const removeTable = (idx: number) => setTables(tables.filter((_, i) => i !== idx));
 
+  // Handler for the Next button
+  // Validates DB form if needed, then navigates to the next step
   const handleNext = () => {
     if (option === 'db') {
       const errors = validateDbInputs();
@@ -84,18 +114,37 @@ function DataSourcePage() {
     navigate('/report-type');
   };
 
+  const handleUpload = async () => {
+    if (!files) return;
+    const formData = new FormData();
+    formData.append('file', files[0]);
+    const response = await fetch('http://localhost:4000/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    const result = await response.json();
+    setColumns(result.columns);
+    setSelectedColumns(result.columns); // default: all selected
+    setPreview(result.preview);
+    setAllData(result.allData);
+  };
+
   return (
     <div className="page-container">
       <div className="card">
+        {/* Back button to return to the home page */}
         <button className="back-button" onClick={() => navigate('/')}>← Back</button>
         <h2>Data Source Connection</h2>
+        {/* Option buttons for file upload or database connection */}
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
           <button className={`button ${option === 'file' ? 'active' : ''}`} onClick={() => setOption('file')}>Upload Excel File(s)</button>
           <button className={`button ${option === 'db' ? 'active' : ''}`} onClick={() => setOption('db')}>Connect to Database</button>
         </div>
 
+        {/* File upload section */}
         {option === 'file' && (
           <div style={{ width: '100%', marginBottom: '1.5rem', textAlign: 'center' }}>
+            {/* Drag-and-drop area for files */}
             <div
               onClick={() => fileInputRef.current?.click()}
               onDrop={handleDrop}
@@ -112,6 +161,7 @@ function DataSourcePage() {
             >
               Click or Drag & Drop Excel files here
             </div>
+            {/* Hidden file input for manual selection */}
             <input
               type="file"
               ref={fileInputRef}
@@ -120,8 +170,11 @@ function DataSourcePage() {
               onChange={handleFileChange}
               style={{ display: 'none' }}
             />
+            {/* Next button is enabled only if files are selected */}
             <button className="button" onClick={handleNext} disabled={!files}>Next</button>
+            {/* Show error if file type is not supported */}
             {fileError && <p style={{ color: 'red', marginTop: '0.5rem' }}>{fileError}</p>}
+            {/* List of selected files */}
             {files && (
               <ul style={{ listStyle: 'none', padding: 0, margin: '0.5rem 0 0 0', color: '#eaff6b', fontSize: '0.95rem' }}>
                 {Array.from(files).map((file, idx) => (
@@ -129,11 +182,44 @@ function DataSourcePage() {
                 ))}
               </ul>
             )}
+            <button className="button" onClick={handleUpload} disabled={!files}>
+              Upload to Backend
+            </button>
           </div>
         )}
 
+        {/* Column selection and preview */}
+        {columns.length > 0 && (
+          <div style={{ marginTop: '2rem', width: '100%' }}>
+            <h3 className="section-title">Select Columns to Include</h3>
+            <ColumnMultiSelect
+              columns={columns}
+              selectedColumns={selectedColumns}
+              setSelectedColumns={setSelectedColumns}
+            />
+            <div className="table-wrapper">
+              <table className="styled-table">
+                <thead>
+                  <tr>
+                    {selectedColumns.map(col => <th key={col}>{col}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.map((row, idx) => (
+                    <tr key={idx}>
+                      {selectedColumns.map(col => <td key={col}>{row[col]}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Database connection section */}
         {option === 'db' && (
           <div style={{ width: '100%', marginBottom: '1.5rem', textAlign: 'center' }}>
+            {/* Dropdown to select database type */}
             <select
               value={dbType}
               onChange={e => setDbType(e.target.value)}
@@ -146,8 +232,10 @@ function DataSourcePage() {
               <option value="sqlite">SQLite</option>
             </select>
 
+            {/* Show DB form fields only if a DB type is selected */}
             {dbType && (
               <>
+                {/* Input fields for DB connection details */}
                 {['host', 'port', 'dbName', 'username', 'password'].map((field, idx) => (
                   <div key={idx}>
                     <input
@@ -158,6 +246,7 @@ function DataSourcePage() {
                       onChange={handleDbChange}
                       style={{ marginBottom: '0.5rem', width: '80%' }}
                     />
+                    {/* Show error for each field if present */}
                     {dbErrors[field] && (
                       <div
                         style={{
@@ -175,6 +264,7 @@ function DataSourcePage() {
                   </div>
                 ))}
 
+                {/* Table selection: single or multiple */}
                 <div style={{ marginBottom: '1rem' }}>
                   <span style={{ color: '#eaff6b' }}>Tables: </span>
                   <label>
@@ -187,6 +277,7 @@ function DataSourcePage() {
                   </label>
                 </div>
 
+                {/* Input fields for table names */}
                 {tableMode && (
                   <>
                     {tables.map((t, idx) => (
@@ -197,11 +288,15 @@ function DataSourcePage() {
                           onChange={e => handleTableChange(idx, e.target.value)}
                           style={{ width: '60%' }}
                         />
+                        {/* Button to remove a table (only for multiple tables) */}
                         {tableMode === 'multiple' && tables.length > 1 && (
-                          <button onClick={() => removeTable(idx)} style={{ marginLeft: '0.5rem' }}>×</button>
+                          <button onClick={() => removeTable(idx)} style={{ marginLeft: '0.5rem' }}>
+                            ×
+                          </button>
                         )}
                       </div>
                     ))}
+                    {/* Show error for table names if present */}
                     {dbErrors.tables && (
                       <div
                         style={{
@@ -216,12 +311,14 @@ function DataSourcePage() {
                         {dbErrors.tables}
                       </div>
                     )}
+                    {/* Button to add another table (only for multiple tables) */}
                     {tableMode === 'multiple' && (
                       <button className="button" style={{ marginTop: '0.5rem' }} onClick={addTable}>Add Table</button>
                     )}
                   </>
                 )}
 
+                {/* Next button to proceed after DB details are filled */}
                 <button className="button" style={{ marginTop: '1rem' }} onClick={handleNext}>
                   Next
                 </button>
@@ -234,4 +331,4 @@ function DataSourcePage() {
   );
 }
 
-export default DataSourcePage;
+export default DataSourcePage; // Export the DataSourcePage component
