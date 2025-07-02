@@ -45,7 +45,7 @@ function DataSourcePage() {
   const [columns, setColumns] = useState<string[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [preview, setPreview] = useState<any[]>([]);
-  const [allData, setAllData] = useState<any[]>([]);
+
 
   // Function to validate the database form fields
   const validateDbInputs = () => {
@@ -126,7 +126,6 @@ function DataSourcePage() {
     setColumns(result.columns);
     setSelectedColumns(result.columns); // default: all selected
     setPreview(result.preview);
-    setAllData(result.allData);
   };
 
   return (
