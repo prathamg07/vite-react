@@ -46,6 +46,8 @@ function DataSourcePage() {
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [preview, setPreview] = useState<any[]>([]);
 
+  // Add a flag to track if data is cleansed
+  const [dataCleansed, setDataCleansed] = useState(false);
 
   // Function to validate the database form fields
   const validateDbInputs = () => {
@@ -106,12 +108,25 @@ function DataSourcePage() {
   // Handler for the Next button
   // Validates DB form if needed, then navigates to the next step
   const handleNext = () => {
-    if (option === 'db') {
+    if (option === 'file') {
+      // Only allow next if columns and preview are available
+      if (columns.length > 0 && preview.length > 0) {
+        navigate('/column-select', {
+          state: {
+            columns,
+            preview,
+            selectedColumns,
+          },
+        });
+      }
+    } else if (option === 'db') {
+      // Existing DB validation logic...
       const errors = validateDbInputs();
       setDbErrors(errors);
       if (Object.keys(errors).length > 0) return;
+      // For DB, you would also fetch columns/preview and pass them here
+      // navigate('/data-cleaning', { state: { ... } });
     }
-    navigate('/report-type');
   };
 
   const handleUpload = async () => {
@@ -126,6 +141,14 @@ function DataSourcePage() {
     setColumns(result.columns);
     setSelectedColumns(result.columns); // default: all selected
     setPreview(result.preview);
+    setDataCleansed(true); // Mark as cleansed
+    navigate('/column-select', {
+      state: {
+        columns: result.columns,
+        preview: result.preview,
+        selectedColumns: result.columns,
+      },
+    });
   };
 
   return (
@@ -135,13 +158,15 @@ function DataSourcePage() {
         <button className="back-button" onClick={() => navigate('/')}>← Back</button>
         <h2>Data Source Connection</h2>
         {/* Option buttons for file upload or database connection */}
-        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
-          <button className={`button ${option === 'file' ? 'active' : ''}`} onClick={() => setOption('file')}>Upload Excel File(s)</button>
-          <button className={`button ${option === 'db' ? 'active' : ''}`} onClick={() => setOption('db')}>Connect to Database</button>
-        </div>
+        {!dataCleansed && (
+          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+            <button className={`button ${option === 'file' ? 'active' : ''}`} onClick={() => setOption('file')}>Upload Excel File(s)</button>
+            <button className={`button ${option === 'db' ? 'active' : ''}`} onClick={() => setOption('db')}>Connect to Database</button>
+          </div>
+        )}
 
         {/* File upload section */}
-        {option === 'file' && (
+        {option === 'file' && !dataCleansed && (
           <div style={{ width: '100%', marginBottom: '1.5rem', textAlign: 'center' }}>
             {/* Drag-and-drop area for files */}
             <div
@@ -169,8 +194,6 @@ function DataSourcePage() {
               onChange={handleFileChange}
               style={{ display: 'none' }}
             />
-            {/* Next button is enabled only if files are selected */}
-            <button className="button" onClick={handleNext} disabled={!files}>Next</button>
             {/* Show error if file type is not supported */}
             {fileError && <p style={{ color: 'red', marginTop: '0.5rem' }}>{fileError}</p>}
             {/* List of selected files */}
@@ -182,36 +205,19 @@ function DataSourcePage() {
               </ul>
             )}
             <button className="button" onClick={handleUpload} disabled={!files}>
-              Upload to Backend
+              Cleanse the Data
             </button>
           </div>
         )}
 
-        {/* Column selection and preview */}
-        {columns.length > 0 && (
-          <div style={{ marginTop: '2rem', width: '100%' }}>
-            <h3 className="section-title">Select Columns to Include</h3>
-            <ColumnMultiSelect
-              columns={columns}
-              selectedColumns={selectedColumns}
-              setSelectedColumns={setSelectedColumns}
-            />
-            <div className="table-wrapper">
-              <table className="styled-table">
-                <thead>
-                  <tr>
-                    {selectedColumns.map(col => <th key={col}>{col}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.map((row, idx) => (
-                    <tr key={idx}>
-                      {selectedColumns.map(col => <td key={col}>{row[col]}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        {/* Show selected file(s) after cleansing */}
+        {option === 'file' && dataCleansed && files && (
+          <div style={{ width: '100%', marginBottom: '1.5rem', textAlign: 'center' }}>
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0.5rem 0 0 0', color: '#eaff6b', fontSize: '0.95rem' }}>
+              {Array.from(files).map((file, idx) => (
+                <li key={idx}>{file.name}</li>
+              ))}
+            </ul>
           </div>
         )}
 
