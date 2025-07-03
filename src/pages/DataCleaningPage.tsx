@@ -48,7 +48,7 @@ function analyzeColumn(data: any[], col: string) {
 function DataCleaningPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { columns, preview, selectedColumns: initialSelected, from } = location.state || {};
+  const { columns, preview, selectedColumns: initialSelected } = location.state || {};
 
   // If no data, redirect back
   if (!columns || !preview) {

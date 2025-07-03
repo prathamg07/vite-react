@@ -8,6 +8,7 @@ import DataSourcePage from './pages/DataSourcePage'; // Page for uploading files
 import DataCleaningPage from './pages/DataCleaningPage'; // Page for selecting and cleaning data columns
 import ReportTypePage from './pages/ReportTypePage'; // Page for choosing the type of report
 import ReportViewerPage from './pages/ReportViewerPage'; // Page for viewing the generated report
+import ColumnSelectionPage from './pages/ColumnSelectionPage';
 import './App.css' // Import global styles
 
 function App() {
@@ -21,6 +22,8 @@ function App() {
         <Route path="/" element={<HomePage />} />
         {/* Data source selection (file upload or DB connect) */}
         <Route path="/data-source" element={<DataSourcePage />} />
+        {/* Column selection page */}
+        <Route path="/column-select" element={<ColumnSelectionPage />} />
         {/* Data cleaning page */}
         <Route path="/data-cleaning" element={<DataCleaningPage />} />
         {/* Report type selection page */}

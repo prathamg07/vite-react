@@ -6,7 +6,6 @@ import { useState, useRef, DragEvent } from 'react'; // Import React hooks
 import { useNavigate } from 'react-router-dom'; // Import navigation hook
 import '../App.css'; // Import global styles
 import './DataPreview1.css';
-import ColumnMultiSelect from './ColumnMultiSelect';
 
 // List of allowed file types for upload (Excel formats)
 const SUPPORTED_FILE_TYPES = [
