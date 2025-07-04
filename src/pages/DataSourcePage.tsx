@@ -42,11 +42,13 @@ function DataSourcePage() {
 
   // State for column selection
   const [columns, setColumns] = useState<string[]>([]);
-  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [preview, setPreview] = useState<any[]>([]);
 
   // Add a flag to track if data is cleansed
   const [dataCleansed, setDataCleansed] = useState(false);
+
+  // Add this state
+  const [allData, setAllData] = useState<any[]>([]);
 
   // Function to validate the database form fields
   const validateDbInputs = () => {
@@ -107,19 +109,7 @@ function DataSourcePage() {
   // Handler for the Next button
   // Validates DB form if needed, then navigates to the next step
   const handleNext = () => {
-    if (option === 'file') {
-      // Only allow next if columns and preview are available
-      if (columns.length > 0 && preview.length > 0) {
-        navigate('/column-select', {
-          state: {
-            columns,
-            preview,
-            selectedColumns,
-          },
-        });
-      }
-    } else if (option === 'db') {
-      // Existing DB validation logic...
+    if (option === 'db') {
       const errors = validateDbInputs();
       setDbErrors(errors);
       if (Object.keys(errors).length > 0) return;
@@ -132,22 +122,50 @@ function DataSourcePage() {
     if (!files) return;
     const formData = new FormData();
     formData.append('file', files[0]);
-    const response = await fetch('http://localhost:4000/upload', {
-      method: 'POST',
-      body: formData,
-    });
-    const result = await response.json();
-    setColumns(result.columns);
-    setSelectedColumns(result.columns); // default: all selected
-    setPreview(result.preview);
-    setDataCleansed(true); // Mark as cleansed
-    navigate('/column-select', {
-      state: {
-        columns: result.columns,
-        preview: result.preview,
-        selectedColumns: result.columns,
-      },
-    });
+    try {
+      const response = await fetch('http://localhost:4000/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      let result;
+      try {
+        result = await response.json();
+      } catch (err) {
+        console.error('Error parsing backend response:', err);
+        alert('Upload failed: Could not parse backend response.');
+        return;
+      }
+      console.log('Raw backend response:', result);
+      if (!result.columns) console.error('Missing columns in backend response');
+      if (!result.preview) console.error('Missing preview in backend response');
+      if (!result.allData) console.error('Missing allData in backend response');
+      if (result.allData && Array.isArray(result.allData)) console.log('allData length:', result.allData.length);
+      setColumns(result.columns);
+      setPreview(result.preview);
+      setAllData(result.allData);
+      setDataCleansed(true); // Mark as cleansed
+      // Only navigate if all required data is present
+      if (result.columns && result.preview && result.allData && result.allData.length > 0) {
+        console.log('Navigating to /column-select with:', {
+          columns: result.columns,
+          preview: result.preview,
+          allData: result.allData,
+        });
+        navigate('/column-select', {
+          state: {
+            columns: result.columns,
+            preview: result.preview,
+            allData: result.allData,
+            fileName: files[0].name,
+          },
+        });
+      } else {
+        alert('Upload failed: Missing data from backend.');
+      }
+    } catch (err) {
+      console.error('Error during upload:', err);
+      alert('Upload failed: Network or server error.');
+    }
   };
 
   return (
@@ -323,7 +341,11 @@ function DataSourcePage() {
                 )}
 
                 {/* Next button to proceed after DB details are filled */}
-                <button className="button" style={{ marginTop: '1rem' }} onClick={handleNext}>
+                <button
+                  className="button"
+                  onClick={handleNext}
+                  disabled={!(columns.length > 0 && preview.length > 0 && allData.length > 0)}
+                >
                   Next
                 </button>
               </>

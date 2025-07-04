@@ -12,17 +12,32 @@ function analyzeColumn(data: any[], col: string) {
   const uniqueTypes = Array.from(new Set(values.map((v: any) => typeof v)));
   const uniqueValues = new Set(values.filter((v: any) => v !== null && v !== undefined && v !== ''));
   const allUnique = uniqueValues.size === values.length && nullCount === 0;
-  // Check for length: numeric or alphanumeric, not too long
-  const isNumeric = values.every((v: any) => v !== null && v !== undefined && v !== '' && !isNaN(Number(v)));
-  const isAlphanumeric = values.every((v: any) => v !== null && v !== undefined && v !== '' && /^[a-zA-Z0-9]+$/.test(String(v)) && String(v).length <= 32);
-  const notTooLong = values.every((v: any) => v === null || v === undefined || v === '' || String(v).length <= 32);
-  const eligible = allUnique && notTooLong && (isNumeric || isAlphanumeric);
-  let reason = '';
-  if (!eligible) {
-    if (!allUnique) reason = 'Values are not unique or contain nulls';
-    else if (!notTooLong) reason = 'Some values are too long';
-    else if (!(isNumeric || isAlphanumeric)) reason = 'Values are not numeric or alphanumeric';
-  }
+
+  // Type detection
+  let detectedType = 'object';
+  const isBoolean = values.every((v: any) => typeof v === 'boolean' || v === null || v === undefined || v === '');
+  const isInt = values.every((v: any) => v === null || v === undefined || v === '' || (typeof v === 'number' && Number.isInteger(v)) || (/^-?\d+$/.test(v)));
+  const intLengths = values.filter((v: any) => v !== null && v !== undefined && v !== '' && ((typeof v === 'number' && Number.isInteger(v)) || (/^-?\d+$/.test(v)))).map((v: any) => String(v).replace(/^-/, '').length);
+  const isLongInt = isInt && intLengths.some(len => len > 10);
+  const isShortInt = isInt && intLengths.every(len => len <= 10);
+
+  // Alphanum: all non-null, non-empty, all alphanumeric, all same length, all <= 8 chars
+  const stringValues = values.filter((v: any) => v !== null && v !== undefined && v !== '');
+  const allStrings = stringValues.every((v: any) => typeof v === 'string');
+  const allAlphanum = stringValues.every((v: any) => /^[a-zA-Z0-9]+$/.test(v));
+  const allShort = stringValues.every((v: any) => String(v).length <= 8);
+  const allSameLength = stringValues.length > 0 && stringValues.every((v: any) => String(v).length === String(stringValues[0]).length);
+  const isAlphanum = allStrings && allAlphanum && allShort && allSameLength;
+  // String: all strings, or any value >8 chars, or not all same length, or not all alphanum
+  const isString = allStrings && (!allAlphanum || !allShort || !allSameLength);
+
+  if (isBoolean) detectedType = 'boolean';
+  else if (isInt && isLongInt) detectedType = 'longint';
+  else if (isInt && isShortInt) detectedType = 'int';
+  else if (isAlphanum) detectedType = 'alphanum';
+  else if (isString) detectedType = 'string';
+  else detectedType = 'object';
+
   // Data quality checks
   const hasTypeMismatch = uniqueTypes.length > 1;
   const hasLongValue = values.some((v: any) => v && String(v).length > 32);
@@ -32,12 +47,11 @@ function analyzeColumn(data: any[], col: string) {
     nullCount,
     uniqueTypes,
     total: values.length,
-    eligible,
-    isNumeric,
-    isAlphanumeric,
+    eligible: allUnique && (isInt || isAlphanum),
+    detectedType,
     allUnique,
-    notTooLong,
-    reason,
+    notTooLong: true,
+    reason: '',
     hasTypeMismatch,
     hasLongValue,
     nullPercent,
@@ -48,18 +62,22 @@ function analyzeColumn(data: any[], col: string) {
 function DataCleaningPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { columns, preview, selectedColumns: initialSelected } = location.state || {};
+  const { columns, preview, selectedColumns: initialSelected, allData, fileName } = location.state || {};
 
   // If no data, redirect back
-  if (!columns || !preview) {
-    navigate('/');
-    return null;
-  }
+  useEffect(() => {
+    if (!columns || !preview || !allData) {
+      navigate('/');
+    }
+  }, [columns, preview, allData, navigate]);
+  if (!columns || !preview || !allData) return null;
 
   const [selectedColumns, setSelectedColumns] = useState<string[]>(initialSelected || columns);
   const [primaryKey, setPrimaryKey] = useState('');
   const [addableCol, setAddableCol] = useState('');
   const [fadeIn, setFadeIn] = useState(false);
+  const [tableName, setTableName] = useState('');
+  const [uploading, setUploading] = useState(false);
 
   // Unselected columns for dropdown
   const unselectedColumns = columns.filter((col: string) => !selectedColumns.includes(col));
@@ -97,11 +115,39 @@ function DataCleaningPage() {
   };
 
   // Handler for upload (to backend)
-  const handleUpload = () => {
-    // TODO: Implement upload logic here
-    // You can send { selectedColumns, primaryKey, preview } to the backend
-    alert('Data uploaded successfully!');
-    // navigate('/report-type');
+  const handleUpload = async () => {
+    if (!tableName.trim()) {
+      alert('Please enter a table name.');
+      return;
+    }
+    setUploading(true);
+    // Filter allData to only include selected columns
+    const filteredData = allData.map((row: any) => {
+      const filtered: any = {};
+      selectedColumns.forEach(col => {
+        filtered[col] = row[col];
+      });
+      return filtered;
+    });
+    const response = await fetch('http://localhost:4000/save-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tableName,
+        columns: selectedColumns,
+        primaryKey,
+        data: filteredData,
+        fileName,
+      }),
+    });
+    setUploading(false);
+    const result = await response.json();
+    if (result.success) {
+      alert('Data uploaded successfully!');
+      // navigate('/report-type');
+    } else {
+      alert('Upload failed: ' + result.error);
+    }
   };
 
   // Back button logic: go to 'from' route if provided, else go back
@@ -111,6 +157,7 @@ function DataCleaningPage() {
         columns,
         preview,
         selectedColumns,
+        allData,
       },
       replace: true
     });
@@ -141,6 +188,18 @@ function DataCleaningPage() {
         <p style={{ color: '#888', marginBottom: 32, fontSize: 18 }}>
           Review your selected columns, check for issues, and choose a primary key before uploading.
         </p>
+        {/* Table name input */}
+        <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16 }}>
+          <label htmlFor="tableName" style={{ fontWeight: 500, color: '#eaff6b', fontSize: 16 }}>Table Name:</label>
+          <input
+            id="tableName"
+            type="text"
+            value={tableName}
+            onChange={e => setTableName(e.target.value)}
+            placeholder="Enter table name"
+            style={{ padding: '0.5rem 1rem', borderRadius: 8, border: '1px solid #eaff6b', fontSize: 16, minWidth: 220 }}
+          />
+        </div>
         <div style={{ marginBottom: 32 }}>
           {selectedColumns.length === 0 && (
             <div style={{ color: '#ff4d4f', marginBottom: 12 }}>
@@ -160,15 +219,19 @@ function DataCleaningPage() {
             </thead>
             <tbody>
               {selectedColumns.map((col: string, idx) => {
-                const { nullCount, uniqueTypes, total, eligible, reason, hasTypeMismatch, hasLongValue, nullPercent, isConstant } = columnAnalysis[col];
+                const { nullCount, total, eligible, reason, hasTypeMismatch, hasLongValue, nullPercent, isConstant } = columnAnalysis[col];
                 const hasNulls = nullCount > 0;
                 const isSelected = selectedColumns.includes(col);
                 // Collect issues
-                const issues: { label: string; color: string; tooltip: string }[] = [];
-                if (hasTypeMismatch) issues.push({ label: 'Type mismatch', color: '#ff9800', tooltip: 'Multiple data types detected' });
-                if (hasLongValue) issues.push({ label: 'Long value', color: '#b71c1c', tooltip: 'Some values exceed 32 characters' });
-                if (nullPercent > 20) issues.push({ label: 'Many nulls', color: '#d32f2f', tooltip: `More than 20% values are null (${nullCount}/${total})` });
-                if (isConstant) issues.push({ label: 'Constant', color: '#607d8b', tooltip: 'All values are the same' });
+                let issues = [];
+                if (isConstant) {
+                  issues.push({ label: 'Constant', color: '#607d8b', tooltip: 'All values are the same' });
+                } else if (nullPercent > 20) {
+                  issues.push({ label: 'Many nulls', color: '#d32f2f', tooltip: `More than 20% values are null (${nullCount}/${total})` });
+                } else {
+                  if (hasLongValue) issues.push({ label: 'Long value', color: '#b71c1c', tooltip: 'Some values exceed 32 characters' });
+                  if (hasTypeMismatch) issues.push({ label: 'Type mismatch', color: '#ff9800', tooltip: 'Multiple data types detected' });
+                }
                 return (
                   <tr
                     key={col}
@@ -189,9 +252,9 @@ function DataCleaningPage() {
                     </td>
                     <td style={{ fontWeight: 500, padding: '0.75rem 0.5rem' }}>{col}</td>
                     <td style={{ color: hasNulls ? '#ff4d4f' : '#eaff6b', fontWeight: hasNulls ? 600 : 400, padding: '0.75rem 0.5rem' }}>
-                      {nullCount > 0 ? `${nullCount} / ${total}` : '0'}
+                      {Math.round(nullPercent)}%
                     </td>
-                    <td style={{ padding: '0.75rem 0.5rem' }}>{uniqueTypes.join(', ')}</td>
+                    <td style={{ padding: '0.75rem 0.5rem' }}>{columnAnalysis[col].detectedType}</td>
                     <td style={{ minWidth: 120, padding: '0.75rem 0.5rem' }}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                         {issues.length === 0 && <span style={{ color: '#4caf50', fontWeight: 500, fontSize: 13, background: '#eaff6b22', borderRadius: 6, padding: '2px 8px' }}>No issues</span>}
@@ -269,19 +332,19 @@ function DataCleaningPage() {
             className="button"
             style={{
               minWidth: 180,
-              background: primaryKey && selectedColumns.length > 0 && eligiblePKColumns.length > 0 ? '#eaff6b' : '#888',
+              background: primaryKey && selectedColumns.length > 0 && eligiblePKColumns.length > 0 && tableName.trim() && !uploading ? '#eaff6b' : '#888',
               color: '#181e26',
               fontWeight: 600,
               fontSize: 18,
               borderRadius: 8,
               padding: '0.75rem 2rem',
-              cursor: primaryKey && selectedColumns.length > 0 && eligiblePKColumns.length > 0 ? 'pointer' : 'not-allowed',
+              cursor: primaryKey && selectedColumns.length > 0 && eligiblePKColumns.length > 0 && tableName.trim() && !uploading ? 'pointer' : 'not-allowed',
               transition: 'background 0.2s'
             }}
-            disabled={!primaryKey || selectedColumns.length === 0 || eligiblePKColumns.length === 0}
+            disabled={!primaryKey || selectedColumns.length === 0 || eligiblePKColumns.length === 0 || !tableName.trim() || uploading}
             onClick={handleUpload}
           >
-            Upload to Backend
+            {uploading ? 'Uploading...' : 'Upload to Backend'}
           </button>
         </div>
       </div>

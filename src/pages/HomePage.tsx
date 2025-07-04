@@ -16,8 +16,8 @@ function HomePage() {
           Create New Report
         </button>
         {/* Button to view existing reports (not yet implemented) */}
-        <button className="button" onClick={() => navigate('/report-viewer')}>
-          View Existing Reports
+        <button className="button" onClick={() => navigate('/files-dashboard')}>
+          View Existing Files
         </button>
       </div>
     </div>

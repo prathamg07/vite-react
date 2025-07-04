@@ -5,11 +5,14 @@ import ColumnMultiSelect from './ColumnMultiSelect';
 function ColumnSelectionPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { columns, preview, selectedColumns: initialSelected } = location.state || {};
+  const { columns, preview, selectedColumns: initialSelected, allData } = location.state || {};
 
-  if (!columns || !preview) {
-    navigate('/');
-    return null;
+  if (!columns || !preview || allData == null) {
+    return (
+      <div style={{ color: 'red', textAlign: 'center', marginTop: '2rem' }}>
+        Required data is missing. Please start from the data upload page.
+      </div>
+    );
   }
 
   const [selectedColumns, setSelectedColumns] = useState<string[]>(initialSelected || columns);
@@ -21,6 +24,7 @@ function ColumnSelectionPage() {
           columns,
           preview,
           selectedColumns,
+          allData,
           from: '/column-select',
         },
       });

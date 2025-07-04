@@ -9,6 +9,7 @@ import DataCleaningPage from './pages/DataCleaningPage'; // Page for selecting a
 import ReportTypePage from './pages/ReportTypePage'; // Page for choosing the type of report
 import ReportViewerPage from './pages/ReportViewerPage'; // Page for viewing the generated report
 import ColumnSelectionPage from './pages/ColumnSelectionPage';
+import FilesDashboardPage from './pages/FilesDashboardPage'; // Add import for files dashboard
 import './App.css' // Import global styles
 
 function App() {
@@ -30,6 +31,8 @@ function App() {
         <Route path="/report-type" element={<ReportTypePage />} />
         {/* Report viewer page */}
         <Route path="/report-viewer" element={<ReportViewerPage />} />
+        {/* Files dashboard page */}
+        <Route path="/files-dashboard" element={<FilesDashboardPage />} />
       </Routes>
     </Router>
   )

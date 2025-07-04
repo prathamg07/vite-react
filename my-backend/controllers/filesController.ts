@@ -1,24 +1,7 @@
-import express, { Request, Response } from 'express';
-import cors from 'cors';
-import multer from 'multer';
+import express from 'express';
+import pool from '../db';
 import * as XLSX from 'xlsx';
-import dotenv from 'dotenv';
-import filesRouter from './routes/files';
-import pool, { ensureFileMetadataTable } from './db';
-
-dotenv.config();
-
-console.log('DATABASE_URL:', process.env.DATABASE_URL);
-
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 } // 20MB
-});
+import { Parser as Json2csvParser } from 'json2csv';
 
 type DataRow = Record<string, string | number | boolean | null>;
 
@@ -49,31 +32,7 @@ function chunkArray<T>(array: T[], size: number): T[][] {
   return result;
 }
 
-app.post('/upload', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No file uploaded' });
-    return;
-  }
-
-  const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const data: DataRow[] = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: false });
-
-  console.log(`Parsed ${data.length} rows from Excel`);
-
-  if (data.length === 0) {
-    res.status(400).json({ error: 'No data found in file' });
-    return;
-  }
-
-  const columns: string[] = Object.keys(data[0]);
-  const preview: DataRow[] = data.slice(0, 5);
-
-  res.json({ columns, preview, allData: data });
-});
-
-app.post('/save-data', async (req: Request, res: Response) => {
+export async function saveData(req: express.Request, res: express.Response): Promise<any> {
   const { tableName, columns, primaryKey, data, fileName } = req.body;
 
   if (!tableName || !Array.isArray(columns) || !primaryKey || !Array.isArray(data)) {
@@ -105,12 +64,11 @@ app.post('/save-data', async (req: Request, res: Response) => {
       `INSERT INTO file_metadata (file_name, table_name, primary_key, details) VALUES ($1, $2, $3, $4) ON CONFLICT (table_name) DO NOTHING;`,
       [fileName || tableName, tableName, primaryKey, JSON.stringify({ columns })]
     );
+    console.log(`Inserted metadata for table: ${tableName}`);
 
     if (rows.length > 0) {
-      const start = Date.now();
       const BATCH_SIZE = 100;
       const batches: DataRow[][] = chunkArray(rows, BATCH_SIZE);
-      let totalInserted = 0;
 
       for (const batch of batches) {
         const allValues: any[] = [];
@@ -139,15 +97,7 @@ app.post('/save-data', async (req: Request, res: Response) => {
         `;
 
         await pool.query(insertSQL, allValues);
-        totalInserted += batch.length;
       }
-
-      const end = Date.now();
-      const timestamp: string = new Date().toISOString();
-      const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
-      console.log(
-        `[${timestamp}] Inserted ${totalInserted} rows into "${tableName}" from ${clientIp} in ${end - start} ms`
-      );
     }
 
     res.json({ success: true });
@@ -155,10 +105,9 @@ app.post('/save-data', async (req: Request, res: Response) => {
     console.error('Error during DB insert:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}
 
-// Endpoint to list all uploaded files (tables)
-app.get('/files', async (req, res) => {
+export async function getFiles(req: express.Request, res: express.Response): Promise<any> {
   try {
     const result = await pool.query('SELECT * FROM file_metadata ORDER BY uploaded_at DESC');
     const files = result.rows.map(row => ({
@@ -167,19 +116,71 @@ app.get('/files', async (req, res) => {
       uploadedAt: row.uploaded_at,
       primaryKey: row.primary_key,
       details: row.details,
-      reports: [] // Placeholder for future report integration
+      reports: []
     }));
     res.json({ files });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch files' });
   }
-});
+}
 
-// Call this before starting the server
-ensureFileMetadataTable().then(() => {
-  const PORT = process.env.PORT || 4000;
-  app.use('/api', filesRouter);
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-});
+export async function downloadFile(req: express.Request, res: express.Response): Promise<any> {
+  const { file: fileName, format } = req.query;
+  if (!fileName || !format) {
+    return res.status(400).json({ error: 'Missing file or format parameter' });
+  }
+  try {
+    // Find the table name for this file
+    const metaResult = await pool.query('SELECT * FROM file_metadata WHERE file_name = $1', [fileName]);
+    if (metaResult.rows.length === 0) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    const tableName = metaResult.rows[0].table_name;
+    // Get all data from the table
+    const dataResult = await pool.query(`SELECT * FROM "${tableName}"`);
+    const rows = dataResult.rows;
+    if (format === 'csv') {
+      const parser = new Json2csvParser();
+      const csv = parser.parse(rows);
+      res.header('Content-Type', 'text/csv');
+      res.attachment(`${fileName}.csv`);
+      return res.send(csv);
+    } else if (format === 'xlsx') {
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.attachment(`${fileName}.xlsx`);
+      return res.send(buf);
+    } else {
+      return res.status(400).json({ error: 'Invalid format' });
+    }
+  } catch (err) {
+    console.error('Download error:', err);
+    return res.status(500).json({ error: 'Failed to download file' });
+  }
+}
+
+export async function previewFile(req: express.Request, res: express.Response): Promise<any> {
+  const { table } = req.query;
+  if (!table) {
+    return res.status(400).json({ error: 'Missing table parameter' });
+  }
+  try {
+    // Get first 20 rows
+    const previewResult = await pool.query(`SELECT * FROM "${table}" LIMIT 20`);
+    console.log('Preview rows for', table, ':', previewResult.rows);
+    // Get total row count
+    const countResult = await pool.query(`SELECT COUNT(*) FROM "${table}"`);
+    // Get column count
+    const columnsResult = await pool.query(`SELECT * FROM "${table}" LIMIT 1`);
+    const preview = previewResult.rows;
+    const rowCount = parseInt(countResult.rows[0].count, 10);
+    const colCount = columnsResult.rows.length > 0 ? Object.keys(columnsResult.rows[0]).length : 0;
+    res.json({ preview, rowCount, colCount });
+  } catch (err) {
+    console.error('Preview error:', err);
+    return res.status(500).json({ error: 'Failed to get preview' });
+  }
+} 
